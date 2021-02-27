@@ -17,9 +17,11 @@
 
 package com.moto.actions;
 
-import android.content.ContentResolver;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.hardware.display.AmbientDisplayConfiguration;
+import android.os.UserHandle;
 import android.preference.PreferenceManager;
 import android.provider.Settings;
 
@@ -30,16 +32,24 @@ import com.moto.actions.actions.UpdatedStateNotifier;
 import com.moto.actions.actions.CameraActivationAction;
 import com.moto.actions.actions.TorchAction;
 
-public class MotoActionsSettings {
+import static android.provider.Settings.Secure.DOZE_ALWAYS_ON;
+import static android.provider.Settings.Secure.DOZE_ENABLED;
+
+public class MotoActionsSettings implements SharedPreferences.OnSharedPreferenceChangeListener {
     private static final String TAG = "MotoActions";
 
-    private static final String GESTURE_CAMERA_ACTION_KEY = "gesture_camera_action";
-    private static final String GESTURE_CHOP_CHOP_KEY = "gesture_chop_chop";
-    private static final String GESTURE_PICK_UP_KEY = "gesture_pick_up";
-    private static final String GESTURE_IR_WAKEUP_KEY = "gesture_hand_wave";
-    private static final String GESTURE_IR_SILENCER_KEY = "gesture_ir_silencer";
-    private static final String GESTURE_FLIP_TO_MUTE_KEY = "gesture_flip_to_mute";
-    private static final String GESTURE_LIFT_TO_SILENCE_KEY = "gesture_lift_to_silence";
+    protected static final String GESTURE_CAMERA_ACTION_KEY = "gesture_camera_action";
+    protected static final String GESTURE_CHOP_CHOP_KEY = "gesture_chop_chop";
+    protected static final String GESTURE_PICK_UP_KEY = "gesture_pick_up";
+    protected static final String GESTURE_IR_WAKEUP_KEY = "gesture_hand_wave";
+    protected static final String GESTURE_IR_SILENCER_KEY = "gesture_ir_silencer";
+    protected static final String GESTURE_FLIP_TO_MUTE_KEY = "gesture_flip_to_mute";
+    protected static final String GESTURE_LIFT_TO_SILENCE_KEY = "gesture_lift_to_silence";
+
+    protected static final String ALWAYS_ON_DISPLAY = "always_on_display";
+
+    protected static final String CATEG_PICKUP_SENSOR = "pickup_sensor";
+    protected static final String CATEG_PROX_SENSOR = "proximity_sensor";
 
     private final Context mContext;
     private final UpdatedStateNotifier mUpdatedStateNotifier;
@@ -55,7 +65,7 @@ public class MotoActionsSettings {
     public MotoActionsSettings(Context context, UpdatedStateNotifier updatedStateNotifier) {
         SharedPreferences sharedPrefs = PreferenceManager.getDefaultSharedPreferences(context);
         loadPreferences(sharedPrefs);
-        sharedPrefs.registerOnSharedPreferenceChangeListener(mPrefListener);
+        sharedPrefs.registerOnSharedPreferenceChangeListener(this);
         mContext = context;
         mUpdatedStateNotifier = updatedStateNotifier;
     }
@@ -68,20 +78,54 @@ public class MotoActionsSettings {
         return mChopChopEnabled;
     }
 
-    public static boolean isDozeEnabled(ContentResolver contentResolver) {
-        return (Settings.Secure.getInt(contentResolver, Settings.Secure.DOZE_ENABLED, 1) != 0);
+    public static boolean isAlwaysOnEnabled(Context context) {
+        final boolean enabledByDefault = context.getResources()
+                .getBoolean(com.android.internal.R.bool.config_dozeAlwaysOnEnabled);
+
+        return Settings.Secure.getIntForUser(context.getContentResolver(),
+                DOZE_ALWAYS_ON, alwaysOnDisplayAvailable(context) && enabledByDefault ? 1 : 0,
+                UserHandle.USER_CURRENT) != 0;
     }
 
+    public static boolean alwaysOnDisplayAvailable(Context context) {
+        return new AmbientDisplayConfiguration(context).alwaysOnAvailable();
+    }
+
+    public static boolean enableAlwaysOn(Context context, boolean enable) {
+        return Settings.Secure.putIntForUser(context.getContentResolver(),
+                DOZE_ALWAYS_ON, enable ? 1 : 0, UserHandle.USER_CURRENT);
+    }
+
+    public static boolean enableDoze(Context context, boolean enable) {
+        return Settings.Secure.putInt(context.getContentResolver(),
+                DOZE_ENABLED, enable ? 1 : 0);
+    }
+
+    public static boolean isDozeEnabled(Context context) {
+        return Settings.Secure.getInt(context.getContentResolver(),
+                DOZE_ENABLED, 1) != 0;
+    }
+
+    public static boolean getProxCheckBeforePulse(Context context) {
+        try {
+            Context con = context.createPackageContext("com.android.systemui", 0);
+            int id = con.getResources().getIdentifier("doze_proximity_check_before_pulse",
+                    "bool", "com.android.systemui");
+            return con.getResources().getBoolean(id);
+        } catch (PackageManager.NameNotFoundException e) {
+            return false;
+        }
+    }
     public boolean isDozeEnabled() {
-        return isDozeEnabled(mContext.getContentResolver());
+        return isDozeEnabled(mContext);
     }
 
     public boolean isIrWakeupEnabled() {
-        return isDozeEnabled() && mIrWakeUpEnabled;
+        return isDozeEnabled() && !isAlwaysOnEnabled(mContext) && mIrWakeUpEnabled;
     }
 
     public boolean isPickUpEnabled() {
-        return isDozeEnabled() && mPickUpGestureEnabled;
+        return isDozeEnabled() && !isAlwaysOnEnabled(mContext) && mPickUpGestureEnabled;
     }
 
     public boolean isIrSilencerEnabled() {
@@ -108,14 +152,12 @@ public class MotoActionsSettings {
         mCameraGestureEnabled = sharedPreferences.getBoolean(GESTURE_CAMERA_ACTION_KEY, true);
         mChopChopEnabled = sharedPreferences.getBoolean(GESTURE_CHOP_CHOP_KEY, true);
         mIrWakeUpEnabled = sharedPreferences.getBoolean(GESTURE_IR_WAKEUP_KEY, false);
-        mPickUpGestureEnabled = sharedPreferences.getBoolean(GESTURE_PICK_UP_KEY, false);
+        mPickUpGestureEnabled = sharedPreferences.getBoolean(GESTURE_PICK_UP_KEY, true);
         mIrSilencerEnabled = sharedPreferences.getBoolean(GESTURE_IR_SILENCER_KEY, false);
         mFlipToMuteEnabled = sharedPreferences.getBoolean(GESTURE_FLIP_TO_MUTE_KEY, false);
         mLiftToSilenceEnabled = sharedPreferences.getBoolean(GESTURE_LIFT_TO_SILENCE_KEY, false);
     }
 
-    private SharedPreferences.OnSharedPreferenceChangeListener mPrefListener =
-            new SharedPreferences.OnSharedPreferenceChangeListener() {
         @Override
         public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
             boolean updated = true;
@@ -127,7 +169,7 @@ public class MotoActionsSettings {
             } else if (GESTURE_IR_WAKEUP_KEY.equals(key)) {
                 mIrWakeUpEnabled = sharedPreferences.getBoolean(GESTURE_IR_WAKEUP_KEY, false);
             } else if (GESTURE_PICK_UP_KEY.equals(key)) {
-                mPickUpGestureEnabled = sharedPreferences.getBoolean(GESTURE_PICK_UP_KEY, false);
+                mPickUpGestureEnabled = sharedPreferences.getBoolean(GESTURE_PICK_UP_KEY, true);
             } else if (GESTURE_IR_SILENCER_KEY.equals(key)) {
                 mIrSilencerEnabled = sharedPreferences.getBoolean(GESTURE_IR_SILENCER_KEY, false);
             } else if (GESTURE_FLIP_TO_MUTE_KEY.equals(key)) {
@@ -135,8 +177,7 @@ public class MotoActionsSettings {
             } else if (GESTURE_LIFT_TO_SILENCE_KEY.equals(key)) {
                 mLiftToSilenceEnabled = sharedPreferences.getBoolean(GESTURE_LIFT_TO_SILENCE_KEY, false);
             } else if (Constants.FP_HOME_KEY.equals(key) || Constants.FP_HAPTIC_KEY.equals(key) || Constants.FP_HOME_KEY_OFF.equals(key) || Constants.FP_HAPTIC_SCREENOFF_KEY.equals(key) || Constants.FP_KEYS.equals(key) || Constants.FP_KEY_DBLTAP.equals(key) || Constants.FP_KEY_HOLD.equals(key) ||  Constants.FP_KEY_LEFT.equals(key) || Constants.FP_KEY_RIGHT.equals(key)
-                || Constants.FP_KEYS_OFF.equals(key) || Constants.FP_KEY_DBLTAP_OFF.equals(key) || Constants.FP_KEY_HOLD_OFF.equals(key) ||  Constants.FP_KEY_LEFT_OFF.equals(key) || Constants.FP_KEY_RIGHT_OFF.equals(key)
-                || Constants.GESTURE_SWIPE_RIGHT.equals(key) || Constants.GESTURE_SWIPE_LEFT.equals(key) || Constants.GESTURE_SWIPE_DOWN.equals(key) || Constants.GESTURE_SWIPE_UP.equals(key)) {
+                || Constants.FP_KEYS_OFF.equals(key) || Constants.FP_KEY_DBLTAP_OFF.equals(key) || Constants.FP_KEY_HOLD_OFF.equals(key) ||  Constants.FP_KEY_LEFT_OFF.equals(key) || Constants.FP_KEY_RIGHT_OFF.equals(key)) {
                 Constants.writePreference(mContext, key);
                 updated = false;
             } else {
@@ -147,5 +188,4 @@ public class MotoActionsSettings {
                 mUpdatedStateNotifier.updateState();
             }
         }
-    };
 }

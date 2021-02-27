@@ -22,14 +22,8 @@ import androidx.preference.PreferenceFragment;
 public class GestureSettingsFragment extends PreferenceFragment {
 
     @Override
-    public void onActivityCreated(Bundle savedInstanceState) {
-        super.onActivityCreated(savedInstanceState);
-        getActivity().getActionBar().setDisplayHomeAsUpEnabled(true);
-    }
-
-    @Override
     public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
-        addPreferencesFromResource(R.xml.actions_panel);
+        addPreferencesFromResource(R.xml.gesture_settings);
     }
 
 }
